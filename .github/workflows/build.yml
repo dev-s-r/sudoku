@@ -20,6 +20,21 @@ jobs:
       - run: npx cap add android
       - name: App icon
         run: npx @capacitor/assets generate --android --iconBackgroundColor '#000000' --splashBackgroundColor '#000000' || echo "icon skipped"
+      - name: Remove splash screen
+        run: |
+          python3 - <<'PY'
+          import re
+          p='android/app/src/main/res/values/styles.xml'
+          s=open(p).read()
+          new='''<style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+              <item name="windowSplashScreenBackground">#1b1c22</item>
+              <item name="windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+              <item name="android:background">#1b1c22</item>
+          </style>'''
+          s=re.sub(r'<style name="AppTheme.NoActionBarLaunch".*?</style>',new,s,flags=re.S)
+          open(p,'w').write(s)
+          print(s)
+          PY
       - run: npx cap sync android
       - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
