@@ -10,7 +10,7 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
       - name: Unzip project
-        run: for z in *.zip; do unzip -o "$z"; done
+        run: for z in *.zip; do unzip -n "$z"; done
       - name: Arrange files
         run: |
           mkdir -p www resources
