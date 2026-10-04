@@ -311,8 +311,15 @@ function toHome(nav){
   setTimeout(()=>{mini.style.transition='opacity .2s ease';mini.style.opacity='1';ghost.style.transition='opacity .2s ease';ghost.style.opacity='0'},520);
   setTimeout(()=>{ghost.remove();mini.style.transition='';mini.style.opacity='';app.classList.remove('flip');leaving=0},760);
  },260)}
-$('#back').onclick=()=>{const nav=()=>{if(hs.length>1)hs.pop();go(hs[hs.length-1],0);if(cur=='game')render()};
- if(cur=='game'&&hs.length>1&&hs[hs.length-2]=='home')toHome(nav);else nav()};
+function appBack(){
+ if(hs.length<2)return 0;
+ const nav=()=>{if(hs.length>1)hs.pop();go(hs[hs.length-1],0);if(cur=='game')render()};
+ if(cur=='game'&&hs.length>1&&hs[hs.length-2]=='home')toHome(nav);else nav();
+ return 1
+}
+$('#back').onclick=appBack;
+const capApp=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.App;
+if(capApp&&capApp.addListener)capApp.addListener('backButton',()=>{if(!appBack()&&capApp.exitApp)capApp.exitApp()});
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),2000)}
 function ov(h,c=''){$('#ov').innerHTML='<div class="card '+c+'">'+h+'</div>';$('#ov').classList.add('on');$('#ov').classList.toggle('lt',c.includes('win'))}
 const cov=()=>$('#ov').classList.remove('on');
