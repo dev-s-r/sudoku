@@ -104,6 +104,9 @@ svg{fill:currentColor;display:block}
 #tools .on svg{filter:drop-shadow(0 0 6px var(--ac))}
 #restart svg{transition:transform .5s}#restart.spin svg{transform:rotate(360deg)}
 #setL{width:100%;max-width:380px;padding:0 30px;margin:8px auto 0}
+#vS{width:100%;max-width:380px;padding:0 30px;margin:0 auto;flex:1;overflow:auto;min-height:0}#vL{width:100%;max-width:380px;padding:0 30px;margin:0 auto 14px;flex:1;overflow:auto;min-height:0}#vL small{display:block;font-size:12px;color:var(--mut);margin-top:2px}#vL .mt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#vL .e{text-align:center;color:var(--mut);padding:40px 0;font-size:14px}
+.pad{display:grid;grid-template:repeat(3,54px)/repeat(3,54px);gap:24px;justify-content:center;margin:22px auto 4px;touch-action:none;user-select:none}.pad i{border:2px solid var(--ln);border-radius:50%;transition:background .15s,border-color .15s}.pad i.on{background:var(--ac);border-color:var(--ac)}
+.vin{width:100%;height:48px;margin-top:14px;border:2px solid var(--ln);border-radius:14px;background:none;color:inherit;font:inherit;font-size:17px;text-align:center;outline:0}.vm{max-width:100%;max-height:48vh;border-radius:12px;display:block;margin:0 auto}.ve{color:var(--mut);font-size:14px;padding:6px 0}.sk{animation:sk .4s}@keyframes sk{25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
 #credit{margin:36px 0 20px;text-align:center;font-size:13px;line-height:1.6;letter-spacing:.04em;color:var(--mut)}
 .mr{display:flex;align-items:center;gap:14px;width:100%;height:62px;border-bottom:1px solid var(--ln);text-align:left;transition:background .25s}
 .mr:active{background:var(--gv)}
@@ -196,6 +199,8 @@ button:focus-visible{outline:2px solid var(--ac);outline-offset:3px}
   </div>
   <p id="credit">Made by Dev Singh Rathore<br>from Jaipur</p>
  </section>
+ <section id="vault" class="scr"><h1 class="ttl">Vault</h1><div id="vL"></div><button class="pill" id="vAdd">Add files</button><button class="pill" id="vSet" style="border-color:transparent;color:var(--mut)">Vault settings</button><input type="file" id="vIn" multiple hidden></section>
+ <section id="vset" class="scr"><h1 class="ttl">Vault settings</h1><div id="vS"></div></section>
  <section id="opt" class="scr"><h1 class="ttl" id="optT"></h1><div id="optL"></div></section>
  <section id="times" class="scr"><h1 class="ttl" style="margin-bottom:14px">Times</h1>
   <div class="pk" style="margin-bottom:12px"><button id="tp"><svg width="34" height="34" viewBox="0 0 24 24"><path d="M15.4 7.4L14 6l-6 6 6 6 1.4-1.4L10.8 12z"/></svg></button><span id="tlv"></span><button id="tn"><svg width="34" height="34" viewBox="0 0 24 24"><path d="M8.6 16.6L10 18l6-6-6-6-1.4 1.4 4.6 4.6z"/></svg></button></div>
@@ -475,5 +480,55 @@ swipe($('#lp').parentNode,()=>{if(S.lv>0){S.lv--;home(-1);save()}},()=>{if(S.lv<
 swipe($('#tp').parentNode,()=>{if(TL>0){TL--;tm()}},()=>{if(TL<4){TL++;tm()}});
 
 theme(S.th);home();if(G&&G.val&&G.val.length==81)render();else G=null;setTimeout(()=>prefetch(S.lv),600);
+
+(()=>{const dbp=new Promise((ok,no)=>{const r=indexedDB.open('vlt2',1);r.onupgradeneeded=()=>{['f','d'].forEach(n=>r.result.createObjectStore(n,{keyPath:'id'}));r.result.createObjectStore('m')};r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)}),
+q=async(s,m,f)=>{const d=await dbp;return new Promise((ok,no)=>{const t=d.transaction(s,m),r=f(t.objectStore(s));t.oncomplete=()=>ok(r.result);t.onerror=t.onabort=()=>no(t.error)})},
+sb=crypto.subtle,rb=n=>crypto.getRandomValues(new Uint8Array(n)),
+pk=async(p,s)=>sb.deriveKey({name:'PBKDF2',salt:s,iterations:200000,hash:'SHA-256'},await sb.importKey('raw',new TextEncoder().encode(p),'PBKDF2',false,['deriveKey']),{name:'AES-GCM',length:256},false,['encrypt','decrypt']),
+mk=r=>sb.importKey('raw',r,'AES-GCM',false,['encrypt','decrypt']),
+enc=async b=>{const iv=rb(12);return{iv,ct:await sb.encrypt({name:'AES-GCM',iv},K,b)}},
+dec=(iv,ct)=>sb.decrypt({name:'AES-GCM',iv},K,ct),
+wrap=async p=>{const s=rb(16),iv=rb(12);return{salt:s,iv,ct:await sb.encrypt({name:'AES-GCM',iv},await pk(p,s),raw)}},
+unwrap=async(p,m)=>{try{return new Uint8Array(await sb.decrypt({name:'AES-GCM',iv:m.iv},await pk(p,m.salt),m.ct))}catch(e){return null}},
+ls=(k,d)=>localStorage.getItem(k)||d,PT=()=>ls('vpt','t'),HT=()=>+ls('vht','800'),
+okp=(p,t)=>t=='n'?/^\d{4,12}$/.test(p):t=='p'?p.split('-').length>=4:p.length>=4,NM=t=>t=='n'?'PIN':t=='p'?'pattern':'password',
+inp=(id,ph,t)=>'<input class="vin" id="'+id+'" type="password" placeholder="'+ph+'" autocomplete="off"'+(t=='n'?' inputmode="numeric"':'')+'>',
+sz=n=>n>1e6?(n/1e6).toFixed(1)+' MB':Math.max(1,Math.round(n/1e3))+' KB',
+esc=s=>s.replace(/[&<>"]/g,c=>'&#'+c.charCodeAt(0)+';'),
+shk=()=>{const c=$('#ov .card');c.classList.remove('sk');void c.offsetWidth;c.classList.add('sk')};
+let K=null,raw=null,urls=[];
+async function unlock(p,p2){const m=await q('m','readonly',s=>s.get('k'));if(!m){if(!okp(p,PT())||p!==p2)return 0;raw=rb(32);K=await mk(raw);const W=await wrap(p);await q('m','readwrite',s=>s.put(W,'k'));return 1}const r=await unwrap(p,m);if(!r)return 0;raw=r;K=await mk(r);return 1}
+const NP=()=>window.Capacitor&&Capacitor.Plugins||{},FK='capacitor-storage_vk',b64=u=>btoa(String.fromCharCode(...u)),ub=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0)),
+AO={reason:'Unlock',cancelTitle:'Use password',allowDeviceCredential:false,androidTitle:'Unlock',androidSubtitle:'',androidConfirmationRequired:false};
+async function bio(){const P=NP();try{await P.BiometricAuthNative.internalAuthenticate(AO);const r=await P.SecureStorage.internalGetItem({prefixedKey:FK,sync:false});raw=ub(JSON.parse(r.data));K=await mk(raw);return 1}catch(e){return 0}}
+async function fpOn(){const P=NP();try{const c=await P.BiometricAuthNative.checkBiometry();if(!c.isAvailable)return 0;await P.BiometricAuthNative.internalAuthenticate(AO);await P.SecureStorage.internalSetItem({prefixedKey:FK,data:JSON.stringify(b64(raw)),sync:false});localStorage.setItem('vfp','1');return 1}catch(e){return 0}}
+async function fpOff(){try{await NP().SecureStorage.internalRemoveItem({prefixedKey:FK,sync:false})}catch(e){}localStorage.removeItem('vfp')}
+function ask(steps,done){let i=0,vals=[];const nx=async v=>{vals[i]=v;if(i<steps.length-1){i++;show()}else if(!await done(vals)){i=0;vals=[];show();shk()}},
+show=()=>{const s=steps[i];ov('<p>'+s.p+(s.n?'<br><small>'+s.n+'</small>':'')+'</p>'+(s.t=='p'?'<div class="pad" id="av">'+[0,1,2,3,4,5,6,7,8].map(k=>'<i data-k="'+k+'"></i>').join('')+'</div>':'<input class="vin" id="av" type="password" autocomplete="off"'+(s.t=='n'?' inputmode="numeric"':'')+'>')+'<div class="row2"><button class="pill" id="ac">Cancel</button>'+(s.t=='p'?'':'<button class="pill" id="an">'+(i<steps.length-1?'Next':'OK')+'</button>')+'</div>','wcard cf');
+$('#ac').onclick=cov;const e=$('#av');if(s.t=='p'){let sq=[],dn=0;const hit=ev=>{const t=document.elementFromPoint(ev.clientX,ev.clientY);if(t&&t.parentNode==e&&!sq.includes(+t.dataset.k)){sq.push(+t.dataset.k);t.classList.add('on')}};
+e.onpointerdown=ev=>{dn=1;sq=[];e.querySelectorAll('i').forEach(x=>x.classList.remove('on'));hit(ev)};e.onpointermove=ev=>dn&&hit(ev);e.onpointerup=e.onpointercancel=()=>{if(!dn)return;dn=0;if(sq.length>=4)nx(sq.join('-'));else{show();shk()}}}
+else{$('#an').onclick=()=>nx(e.value);e.onkeydown=ev=>ev.key=='Enter'&&nx(e.value);e.focus()}};show()}
+async function prompt(){const m=await q('m','readonly',s=>s.get('k')),t=PT();if(m&&ls('vfp','0')=='1'&&await bio()){go('vault');list();return}
+ask(m?[{p:'Enter '+NM(t),t}]:[{p:'Set a '+NM(t)+(t=='n'?' (4-12 digits)':t=='p'?' (connect 4+ dots)':' (4+ characters)'),n:'It cannot be recovered if you forget it.',t},{p:'Repeat',t}],async v=>{if(await unlock(v[0],v[1])){cov();go('vault');list();return 1}return 0})}
+async function list(){const L=$('#vL'),fs=await q('f','readonly',s=>s.getAll());fs.sort((a,b)=>b.id-a.id);L.innerHTML=fs.length?fs.map(f=>'<button class="mr" data-i="'+f.id+'"><span class="mt">'+esc(f.name)+'<small>'+sz(f.size)+'</small></span></button>').join(''):'<div class="e">Nothing here yet</div>';
+L.querySelectorAll('.mr').forEach(b=>b.onclick=()=>view(fs.find(f=>f.id==b.dataset.i)))}
+async function view(f){const d=await q('d','readonly',s=>s.get(f.id));let buf;try{buf=await dec(d.iv,d.ct)}catch(e){return}
+const bl=new Blob([buf],{type:f.type||'application/octet-stream'}),u=URL.createObjectURL(bl);urls.push(u);const t=f.type||'';
+const m=t.startsWith('image/')?'<img class="vm" src="'+u+'">':t.startsWith('video/')?'<video class="vm" src="'+u+'" controls playsinline></video>':t.startsWith('audio/')?'<audio src="'+u+'" controls style="width:100%"></audio>':'<div class="ve">No preview for this file type. Use Export to open it in another app.</div>';
+ov('<p style="font-size:15px;word-break:break-all">'+esc(f.name)+'</p>'+m+'<div class="row2"><button class="pill" id="vd">Delete</button><button class="pill" id="vx">Export</button></div><button class="pill" id="vk" style="margin-top:12px">Close</button>','wcard cf');
+$('#vk').onclick=cov;$('#vd').onclick=async()=>{await q('f','readwrite',s=>s.delete(f.id));await q('d','readwrite',s=>s.delete(f.id));cov();list()};
+$('#vx').onclick=async()=>{const P=window.Capacitor&&Capacitor.Plugins||{};try{if(P.Filesystem&&P.Share){const b64=await new Promise(r=>{const fr=new FileReader;fr.onload=()=>r(fr.result.split(',')[1]);fr.readAsDataURL(bl)});const w=await P.Filesystem.writeFile({path:f.name,data:b64,directory:'CACHE'});await P.Share.share({url:w.uri})}else{const a=document.createElement('a');a.href=u;a.download=f.name;a.click()}}catch(e){}}}
+$('#vAdd').onclick=()=>$('#vIn').click();
+$('#vIn').onchange=async e=>{const fs=[...e.target.files],b=$('#vAdd');e.target.value='';for(let i=0;i<fs.length;i++){const f=fs[i];b.textContent='Encrypting '+(i+1)+'/'+fs.length+'…';try{const id=Date.now()+i,c=await enc(await f.arrayBuffer());await q('d','readwrite',s=>s.put({id,iv:c.iv,ct:c.ct}));await q('f','readwrite',s=>s.put({id,name:f.name,type:f.type,size:f.size}))}catch(x){b.textContent='Failed: '+f.name;await new Promise(r=>setTimeout(r,1500))}}b.textContent='Add files';list()};
+async function rs(){const fs=await q('f','readonly',s=>s.getAll()),t=PT(),h=HT(),fp=ls('vfp','0')=='1';
+$('#vS').innerHTML='<button class="mr" data-a="cp"><span class="mt">Change password</span></button><button class="mr" data-a="pt"><span class="mt">Lock type<small>'+({t:'Text password',n:'PIN (numbers)',p:'Pattern'})[t]+'</small></span></button><button class="mr" data-a="fp"><span class="mt">Fingerprint unlock<small>'+(fp?'On':'Off')+'</small></span></button><button class="mr" data-a="ht"><span class="mt">Hold logo for<small>'+h/1000+' seconds</small></span></button><div class="mr"><span class="mt">Stored<small>'+fs.length+' files · '+sz(fs.reduce((a,f)=>a+f.size,0))+'</small></span></div><button class="mr" data-a="da"><span class="mt">Delete all files</span></button><div class="ve" style="margin-top:18px">Files are encrypted with AES-256 and stored privately inside this app. They are not visible in your gallery or file manager. Android counts them as this app\'s storage, and uninstalling the app deletes them.</div>';
+$('#vS').querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>({cp:()=>cpd(PT()),pt:ptd,fp:async()=>{if(fp)await fpOff();else if(!await fpOn())ov('<p>Fingerprint could not be turned on.<br><small>Make sure a fingerprint is set up in your phone settings.</small></p><button class="pill" id="fk">OK</button>','wcard cf'),$('#fk').onclick=cov;rs()},ht:()=>{const o=[500,800,1500];localStorage.setItem('vht',o[(o.indexOf(h)+1)%3]||800);rs()},da:wipe})[b.dataset.a]())}
+function ptd(){ov('<p>Choose lock type</p><button class="pill" data-t="t">Text password</button><button class="pill" data-t="n">PIN (numbers)</button><button class="pill" data-t="p">Pattern</button><button class="pill" id="pc">Cancel</button>','wcard cf');$('#pc').onclick=cov;$('#ov').querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>cpd(b.dataset.t))}
+function cpd(nt){ask([{p:'Current '+NM(PT()),t:PT()},{p:'New '+NM(nt),t:nt},{p:'Repeat new',t:nt}],async v=>{const m=await q('m','readonly',s=>s.get('k'));if(await unwrap(v[0],m)&&okp(v[1],nt)&&v[1]===v[2]){const W=await wrap(v[1]);await q('m','readwrite',s=>s.put(W,'k'));localStorage.setItem('vpt',nt);cov();rs();return 1}return 0})}
+function wipe(){ov('<p>Delete every file in the vault?<br>This cannot be undone.</p><div class="row2"><button class="pill" id="wn">Cancel</button><button class="pill" id="wy">Delete</button></div>','wcard cf');$('#wn').onclick=cov;$('#wy').onclick=async()=>{await q('f','readwrite',s=>s.clear());await q('d','readwrite',s=>s.clear());cov();rs()}}
+$('#vSet').onclick=()=>{go('vset');rs()};
+const lock=()=>{K=raw=null;urls.forEach(u=>URL.revokeObjectURL(u));urls=[];$('#vL').innerHTML=''},_g=go,V=x=>x=='vault'||x=='vset';go=(id,p)=>{if(V(cur)&&!V(id))lock();_g(id,p)};
+const lg=$('#logo');let tm;lg.addEventListener('pointerdown',()=>{tm=setTimeout(()=>{tm=0;navigator.vibrate&&navigator.vibrate(30);prompt()},HT())});['pointerup','pointerleave','pointercancel'].forEach(n=>lg.addEventListener(n,()=>{clearTimeout(tm)}));lg.addEventListener('contextmenu',e=>e.preventDefault());
+})();
 requestAnimationFrame(()=>requestAnimationFrame(()=>document.documentElement.classList.remove('noanim')));
 </script></body></html>

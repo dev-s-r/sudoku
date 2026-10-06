@@ -1,0 +1,14 @@
+{
+  "name": "sudoku",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/cli": "^6.2.0",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/filesystem": "^6.0.0",
+    "@capacitor/share": "^6.0.0",
+    "@aparajita/capacitor-biometric-auth": "8.0.2",
+    "@aparajita/capacitor-secure-storage": "6.0.1"
+  }
+}
