@@ -20,6 +20,10 @@ jobs:
       - run: npx cap add android
       - name: App icon
         run: npx @capacitor/assets generate --android --iconBackgroundColor '#000000' --splashBackgroundColor '#000000' || echo "icon skipped"
+      - name: Min SDK 23 and biometric permission
+        run: |
+          sed -i 's/minSdkVersion = .*/minSdkVersion = 23/' android/variables.gradle
+          grep -q USE_BIOMETRIC android/app/src/main/AndroidManifest.xml || sed -i 's#<application#<uses-permission android:name="android.permission.USE_BIOMETRIC" />\n    <application#' android/app/src/main/AndroidManifest.xml
       - name: Remove splash screen
         run: |
           python3 - <<'PY'
