@@ -39,6 +39,7 @@ jobs:
       - name: Min SDK 23 and biometric permission
         run: |
           sed -i 's/minSdkVersion = .*/minSdkVersion = 23/' android/variables.gradle
+          grep -q 'android.permission.CAMERA' android/app/src/main/AndroidManifest.xml || sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n    <application#' android/app/src/main/AndroidManifest.xml
           grep -q USE_BIOMETRIC android/app/src/main/AndroidManifest.xml || sed -i 's#<application#<uses-permission android:name="android.permission.USE_BIOMETRIC" />\n    <application#' android/app/src/main/AndroidManifest.xml
       - name: Remove splash screen
         run: |
