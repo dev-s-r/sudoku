@@ -512,7 +512,7 @@ inp=(id,ph,t)=>'<input class="vin" id="'+id+'" type="password" placeholder="'+ph
 sz=n=>n>1e6?(n/1e6).toFixed(1)+' MB':Math.max(1,Math.round(n/1e3))+' KB',
 esc=s=>s.replace(/[&<>"]/g,c=>'&#'+c.charCodeAt(0)+';'),
 shk=()=>{const c=$('#ov .card');c.classList.remove('vsk');void c.offsetWidth;c.classList.add('vsk')};
-let K=null,raw=null,urls=[];
+let K=null,raw=null,urls=[],busy=0;
 async function unlock(p,p2){const m=await q('m','readonly',s=>s.get('k'));if(!m){if(!okp(p,PT())||p!==p2)return 0;raw=rb(32);K=await mk(raw);const W=await wrap(p);await q('m','readwrite',s=>s.put(W,'k'));return 1}const r=await unwrap(p,m);if(!r)return 0;raw=r;K=await mk(r);return 1}
 const NP=()=>window.Capacitor&&Capacitor.Plugins||{},FK='capacitor-storage_vk',b64=u=>btoa(String.fromCharCode(...u)),ub=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0)),
 AO={reason:'Unlock',cancelTitle:'Use password',allowDeviceCredential:false,androidTitle:'Unlock',androidSubtitle:'',androidConfirmationRequired:false};
@@ -538,7 +538,7 @@ txt=(p,v,cb)=>{ov('<p>'+p+'</p><input class="vin" id="tv" type="text" autocomple
 yn=(p,b,cb)=>{ov('<p>'+p+'</p><div class="row2"><button class="pill" id="yc">Cancel</button><button class="pill" id="yo">'+b+'</button></div>','wcard cf');$('#yc').onclick=cov;$('#yo').onclick=()=>{cov();cb()}},
 path=id=>{const a=[];let x=FO.find(o=>o.id==id);while(x){a.unshift(x.name);x=FO.find(o=>o.id==x.p)}return a},
 tr=async ids=>{for(const id of ids){const f=FS.find(x=>x.id==id);if(f){f.del=Date.now();await svM(f);TR.push(f)}}FS=FS.filter(f=>!ids.includes(f.id))},msg=t=>{ov('<p>'+t+'</p><button class="pill" id="mg">OK</button>','wcard cf');$('#mg').onclick=cov},
-busy=0,bz=()=>{busy=Date.now()},
+bz=()=>{busy=Date.now()},
 dl=async ids=>{for(const id of ids){await q('f','readwrite',s=>s.delete(id));await q('d','readwrite',s=>s.delete(id))}FS=FS.filter(f=>!ids.includes(f.id))},
 mkTh=(f,c)=>new Promise(res=>{if(c!='img'&&c!='vid')return res(null);const u=URL.createObjectURL(f),dn=el=>{try{const cv=document.createElement('canvas'),w=el.videoWidth||el.naturalWidth,h=el.videoHeight||el.naturalHeight,s=240/Math.min(w,h);cv.width=Math.round(w*s);cv.height=Math.round(h*s);cv.getContext('2d').drawImage(el,0,0,cv.width,cv.height);cv.toBlob(b=>{URL.revokeObjectURL(u);b?b.arrayBuffer().then(res):res(null)},'image/jpeg',.7)}catch(e){URL.revokeObjectURL(u);res(null)}};setTimeout(()=>res(null),8000);
 if(c=='img'){const i=new Image;i.onload=()=>dn(i);i.onerror=()=>res(null);i.src=u}else{const v=document.createElement('video');v.muted=true;v.preload='auto';v.onloadeddata=()=>{v.currentTime=Math.min(1,(v.duration||2)/2)};v.onseeked=()=>dn(v);v.onerror=()=>res(null);v.src=u}});
