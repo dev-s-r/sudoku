@@ -40,7 +40,201 @@ jobs:
         run: |
           sed -i 's/minSdkVersion = .*/minSdkVersion = 23/' android/variables.gradle
           grep -q 'android.permission.CAMERA' android/app/src/main/AndroidManifest.xml || sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n    <application#' android/app/src/main/AndroidManifest.xml
+          grep -q RECORD_AUDIO android/app/src/main/AndroidManifest.xml || sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <application#' android/app/src/main/AndroidManifest.xml
           grep -q USE_BIOMETRIC android/app/src/main/AndroidManifest.xml || sed -i 's#<application#<uses-permission android:name="android.permission.USE_BIOMETRIC" />\n    <application#' android/app/src/main/AndroidManifest.xml
+      - name: Native camera plugin
+        run: |
+          M=$(find android/app/src/main/java -name MainActivity.java | head -1)
+          D=$(dirname "$M")
+          PKG=$(grep -m1 '^package' "$M" | sed -E 's/package ([^;]+);/\1/')
+          cp "$M" /tmp/MainActivity.orig
+          cat > "$D/NativeCam.java" <<'JEOF'
+          package com.sudoku.app;
+
+          import android.Manifest;
+          import android.content.ContentUris;
+          import android.content.Intent;
+          import android.database.Cursor;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.provider.MediaStore;
+          import com.getcapacitor.JSArray;
+          import com.getcapacitor.JSObject;
+          import com.getcapacitor.PermissionState;
+          import com.getcapacitor.Plugin;
+          import com.getcapacitor.PluginCall;
+          import com.getcapacitor.PluginMethod;
+          import com.getcapacitor.annotation.CapacitorPlugin;
+          import com.getcapacitor.annotation.Permission;
+          import com.getcapacitor.annotation.PermissionCallback;
+          import java.io.File;
+          import java.io.FileOutputStream;
+          import java.io.InputStream;
+          import java.io.OutputStream;
+
+          @CapacitorPlugin(
+              name = "NativeCam",
+              permissions = {
+                  @Permission(alias = "media", strings = { Manifest.permission.READ_EXTERNAL_STORAGE }),
+                  @Permission(alias = "media33", strings = { Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO })
+              }
+          )
+          public class NativeCam extends Plugin {
+
+              private String alias() {
+                  return Build.VERSION.SDK_INT >= 33 ? "media33" : "media";
+              }
+
+              @PluginMethod
+              public void ensure(PluginCall call) {
+                  if (getPermissionState(alias()) == PermissionState.GRANTED) {
+                      call.resolve();
+                      return;
+                  }
+                  requestPermissionForAlias(alias(), call, "permDone");
+              }
+
+              @PermissionCallback
+              private void permDone(PluginCall call) {
+                  if (getPermissionState(alias()) == PermissionState.GRANTED) {
+                      call.resolve();
+                  } else {
+                      call.reject("Allow access to photos and videos (choose Allow all) so the app can import what you capture.");
+                  }
+              }
+
+              @PluginMethod
+              public void open(PluginCall call) {
+                  if (getPermissionState(alias()) != PermissionState.GRANTED) {
+                      call.reject("Photo and video access is not allowed.");
+                      return;
+                  }
+                  launch(call);
+              }
+
+              private void launch(PluginCall call) {
+                  try {
+                      Intent i = new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA);
+                      getActivity().startActivity(i);
+                      call.resolve();
+                  } catch (Exception e) {
+                      call.reject("Could not open the camera app.");
+                  }
+              }
+
+              @PluginMethod
+              public void list(PluginCall call) {
+                  long since = call.getLong("since", 0L);
+                  JSArray arr = new JSArray();
+                  query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "img", since, arr);
+                  query(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, "vid", since, arr);
+                  JSObject o = new JSObject();
+                  o.put("files", arr);
+                  call.resolve(o);
+              }
+
+              private void query(Uri base, String kind, long since, JSArray out) {
+                  String[] proj = new String[] {
+                      MediaStore.MediaColumns._ID,
+                      MediaStore.MediaColumns.DISPLAY_NAME,
+                      MediaStore.MediaColumns.MIME_TYPE,
+                      MediaStore.MediaColumns.SIZE
+                  };
+                  Cursor c = null;
+                  try {
+                      c = getContext().getContentResolver().query(
+                          base, proj,
+                          MediaStore.MediaColumns.DATE_ADDED + ">=?",
+                          new String[] { String.valueOf(since) },
+                          MediaStore.MediaColumns.DATE_ADDED + " ASC");
+                      if (c == null) return;
+                      while (c.moveToNext()) {
+                          long id = c.getLong(0);
+                          JSObject f = new JSObject();
+                          f.put("uri", ContentUris.withAppendedId(base, id).toString());
+                          f.put("name", c.getString(1));
+                          f.put("mime", c.getString(2));
+                          f.put("size", c.getLong(3));
+                          f.put("kind", kind);
+                          out.put(f);
+                      }
+                  } catch (Exception e) {
+                      // ignore: returns what was found so far
+                  } finally {
+                      if (c != null) c.close();
+                  }
+              }
+
+              @PluginMethod
+              public void copy(PluginCall call) {
+                  String u = call.getString("uri");
+                  String name = call.getString("name", "file");
+                  if (u == null) {
+                      call.reject("No file");
+                      return;
+                  }
+                  try {
+                      File dir = new File(getContext().getCacheDir(), "vcam");
+                      dir.mkdirs();
+                      File out = new File(dir, System.nanoTime() + "_" + name.replaceAll("[^A-Za-z0-9._-]", "_"));
+                      InputStream in = getContext().getContentResolver().openInputStream(Uri.parse(u));
+                      if (in == null) {
+                          call.reject("Could not open file");
+                          return;
+                      }
+                      OutputStream os = new FileOutputStream(out);
+                      try {
+                          byte[] b = new byte[65536];
+                          int n;
+                          while ((n = in.read(b)) > 0) {
+                              os.write(b, 0, n);
+                          }
+                      } finally {
+                          os.close();
+                          in.close();
+                      }
+                      JSObject o = new JSObject();
+                      o.put("path", out.getAbsolutePath());
+                      call.resolve(o);
+                  } catch (Exception e) {
+                      call.reject("Could not read file: " + e.getMessage());
+                  }
+              }
+
+              @PluginMethod
+              public void clean(PluginCall call) {
+                  try {
+                      File dir = new File(getContext().getCacheDir(), "vcam");
+                      File[] fs = dir.listFiles();
+                      if (fs != null) {
+                          for (File f : fs) {
+                              f.delete();
+                          }
+                      }
+                  } catch (Exception e) {
+                      // ignore
+                  }
+                  call.resolve();
+              }
+          }
+          JEOF
+          cat > "$D/MainActivity.java" <<'JEOF'
+          package com.sudoku.app;
+
+          import android.os.Bundle;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  registerPlugin(NativeCam.class);
+                  super.onCreate(savedInstanceState);
+              }
+          }
+          JEOF
+          sed -i "s/^package .*;/package $PKG;/" "$D/NativeCam.java" "$D/MainActivity.java"
+          MF=android/app/src/main/AndroidManifest.xml
+          grep -q READ_MEDIA_IMAGES "$MF" || sed -i 's#<application#<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />\n    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n    <application#' "$MF"
       - name: Remove splash screen
         run: |
           python3 - <<'PY'
@@ -63,7 +257,18 @@ jobs:
       - name: New version number every build
         run: sed -i -E "s/versionCode [0-9]+/versionCode $(( $(date +%s) / 60 ))/" android/app/build.gradle
       - run: npx cap sync android
-      - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
+      - name: Build APK
+        id: b1
+        continue-on-error: true
+        run: cd android && chmod +x gradlew && ./gradlew assembleDebug
+      - name: Rebuild without native camera (runs only if the build above failed)
+        if: steps.b1.outcome == 'failure'
+        run: |
+          echo "::warning::Native camera code failed to compile. Building without it."
+          D=$(dirname "$(find android/app/src/main/java -name NativeCam.java | head -1)")
+          rm -f "$D/NativeCam.java"
+          cp /tmp/MainActivity.orig "$D/MainActivity.java"
+          cd android && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: Sudoku-APK
