@@ -1,5 +1,10 @@
 name: Build APK
-on: [push, workflow_dispatch]
+on:
+  push:
+    tags-ignore: ['**']
+  workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -42,7 +47,7 @@ jobs:
           grep -q 'android.permission.CAMERA' android/app/src/main/AndroidManifest.xml || sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n    <application#' android/app/src/main/AndroidManifest.xml
           grep -q RECORD_AUDIO android/app/src/main/AndroidManifest.xml || sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <application#' android/app/src/main/AndroidManifest.xml
           grep -q USE_BIOMETRIC android/app/src/main/AndroidManifest.xml || sed -i 's#<application#<uses-permission android:name="android.permission.USE_BIOMETRIC" />\n    <application#' android/app/src/main/AndroidManifest.xml
-      - name: Native camera plugin
+      - name: Native code (camera and updates)
         run: |
           M=$(find android/app/src/main/java -name MainActivity.java | head -1)
           D=$(dirname "$M")
@@ -218,58 +223,209 @@ jobs:
               }
           }
           JEOF
+          cat > "$D/OtaUpdater.java" <<'JEOF'
+          package com.sudoku.app;
+
+          import java.io.File;
+          import java.io.FileOutputStream;
+          import java.io.IOException;
+          import java.io.InputStream;
+          import java.io.OutputStream;
+          import java.net.HttpURLConnection;
+          import java.net.URL;
+          import java.util.zip.ZipEntry;
+          import java.util.zip.ZipInputStream;
+
+          /** Downloads a web bundle (zip) and unpacks it into a folder. Plain Java, no Android classes. */
+          public final class OtaUpdater {
+            public interface Progress { void onProgress(int percent); }
+
+            private OtaUpdater() {}
+
+            /** Downloads urlStr, unpacks to root/name and returns that folder (it contains index.html). */
+            public static File downloadAndExtract(String urlStr, File root, String name, Progress progress) throws IOException {
+              if (!root.exists() && !root.mkdirs()) throw new IOException("Could not create the update folder");
+              File zip = new File(root, name + ".zip.tmp");
+              File part = new File(root, name + ".part");
+              File dest = new File(root, name);
+              deleteTree(zip); deleteTree(part); deleteTree(dest);
+              try {
+                download(urlStr, zip, progress);
+                unzip(zip, part);
+                File base = part;
+                if (!new File(base, "index.html").isFile()) {
+                  File[] kids = part.listFiles();
+                  if (kids != null && kids.length == 1 && kids[0].isDirectory() && new File(kids[0], "index.html").isFile()) base = kids[0];
+                  else throw new IOException("The update has no index.html");
+                }
+                if (!base.renameTo(dest)) throw new IOException("Could not save the update");
+                return dest;
+              } catch (IOException | RuntimeException e) {
+                deleteTree(part); deleteTree(dest);
+                throw e;
+              } finally {
+                deleteTree(zip); deleteTree(part);
+              }
+            }
+
+            /** Deletes every folder in root except keepName. */
+            public static void prune(File root, String keepName) {
+              File[] all = root.listFiles();
+              if (all == null) return;
+              for (File f : all) if (!f.getName().equals(keepName)) deleteTree(f);
+            }
+
+            static void download(String urlStr, File out, Progress progress) throws IOException {
+              String cur = urlStr;
+              HttpURLConnection c = null;
+              for (int hop = 0; hop < 8; hop++) {
+                c = (HttpURLConnection) new URL(cur).openConnection();
+                c.setInstanceFollowRedirects(false);
+                c.setConnectTimeout(20000);
+                c.setReadTimeout(60000);
+                c.setRequestProperty("User-Agent", "Sudoku-Updater");
+                c.setRequestProperty("Accept-Encoding", "identity");
+                int code = c.getResponseCode();
+                if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+                  String loc = c.getHeaderField("Location");
+                  c.disconnect();
+                  if (loc == null) throw new IOException("Bad redirect");
+                  cur = new URL(new URL(cur), loc).toString();
+                  if (!cur.startsWith("https://") && !cur.startsWith("http://localhost") && !cur.startsWith("http://127.0.0.1")) throw new IOException("Blocked a redirect to an unsafe address");
+                  c = null;
+                  continue;
+                }
+                if (code / 100 != 2) { c.disconnect(); throw new IOException("Download failed (HTTP " + code + ")"); }
+                break;
+              }
+              if (c == null) throw new IOException("Too many redirects");
+              long total = c.getContentLengthLong();
+              try (InputStream in = c.getInputStream(); OutputStream os = new FileOutputStream(out)) {
+                byte[] buf = new byte[65536];
+                long done = 0; int n, last = -1;
+                while ((n = in.read(buf)) > 0) {
+                  os.write(buf, 0, n);
+                  done += n;
+                  if (progress != null && total > 0) {
+                    int p = (int) (done * 100 / total);
+                    if (p != last) { last = p; progress.onProgress(p); }
+                  }
+                }
+                if (total > 0 && done != total) throw new IOException("The download was cut short");
+              } finally {
+                c.disconnect();
+              }
+              if (out.length() < 22) throw new IOException("The download is empty");
+            }
+
+            static void unzip(File zip, File into) throws IOException {
+              if (!into.mkdirs() && !into.isDirectory()) throw new IOException("Could not create a folder");
+              String base = into.getCanonicalPath() + File.separator;
+              try (ZipInputStream zin = new ZipInputStream(new java.io.BufferedInputStream(new java.io.FileInputStream(zip)))) {
+                ZipEntry e;
+                byte[] buf = new byte[65536];
+                long total = 0;
+                while ((e = zin.getNextEntry()) != null) {
+                  String nm = e.getName().replace('\\', '/');
+                  if (nm.startsWith("./")) nm = nm.substring(2);
+                  if (nm.isEmpty()) continue;
+                  File f = new File(into, nm);
+                  String canon = f.getCanonicalPath();
+                  if (!(canon + (e.isDirectory() ? File.separator : "")).startsWith(base)) throw new IOException("Unsafe file name in the update");
+                  if (e.isDirectory()) { f.mkdirs(); continue; }
+                  File parent = f.getParentFile();
+                  if (parent != null && !parent.isDirectory() && !parent.mkdirs()) throw new IOException("Could not create a folder");
+                  try (OutputStream os = new FileOutputStream(f)) {
+                    int n;
+                    while ((n = zin.read(buf)) > 0) {
+                      os.write(buf, 0, n);
+                      total += n;
+                      if (total > 400L * 1024 * 1024) throw new IOException("The update is too large");
+                    }
+                  }
+                }
+              }
+            }
+
+            static void deleteTree(File f) {
+              if (f == null || !f.exists()) return;
+              File[] kids = f.listFiles();
+              if (kids != null) for (File k : kids) deleteTree(k);
+              f.delete();
+            }
+          }
+          JEOF
           cat > "$D/MainActivity.java" <<'JEOF'
           package com.sudoku.app;
 
+          import android.app.PendingIntent;
+          import android.content.BroadcastReceiver;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.IntentFilter;
+          import android.content.SharedPreferences;
+          import android.content.pm.PackageInfo;
+          import android.content.pm.PackageInstaller;
+          import android.content.pm.PackageManager;
+          import android.content.pm.Signature;
+          import android.net.Uri;
+          import android.os.Build;
           import android.os.Bundle;
+          import android.webkit.JavascriptInterface;
           import com.getcapacitor.BridgeActivity;
+          import java.io.File;
+          import java.io.FileOutputStream;
+          import java.io.InputStream;
+          import java.io.OutputStream;
+          import org.json.JSONObject;
 
           public class MainActivity extends BridgeActivity {
-              @Override
-              public void onCreate(Bundle savedInstanceState) {
-                  registerPlugin(NativeCam.class);
-                  super.onCreate(savedInstanceState);
+
+            @Override
+            public void onCreate(Bundle savedInstanceState) {
+              registerPlugin(NativeCam.class);
+              otaBoot();
+              super.onCreate(savedInstanceState);
+              otaApply();
+              getBridge().getWebView().addJavascriptInterface(new NativeBridge(), "AndroidBridge");
+            }
+
+            /* ---------- quick web updates ---------- */
+            private static final String OTA_PREFS = "sudoku_ota";
+            private static final String CAP_PREFS = "CapWebViewSettings";
+            private static final String CAP_PATH = "serverBasePath";
+
+            private File otaRoot() { return new File(getFilesDir(), "ota"); }
+
+            private void otaClear() {
+              getSharedPreferences(CAP_PREFS, MODE_PRIVATE).edit().remove(CAP_PATH).commit();
+              getSharedPreferences(OTA_PREFS, MODE_PRIVATE).edit().putBoolean("pending", false).remove("name").commit();
+              OtaUpdater.prune(otaRoot(), "\u0000");
+            }
+
+            // Runs before the web view starts: a new app version, or an update that never reported success, goes back to the built-in files.
+            private void otaBoot() {
+              try {
+                SharedPreferences p = getSharedPreferences(OTA_PREFS, MODE_PRIVATE);
+                PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+                long code = Build.VERSION.SDK_INT >= 28 ? pi.getLongVersionCode() : pi.versionCode;
+                if (p.getLong("apk", -1) != code) {
+                  otaClear();
+                  p.edit().putLong("apk", code).commit();
+                } else if (p.getBoolean("pending", false)) {
+                  otaClear();
+                }
+              } catch (Exception e) {
+                otaClear();
               }
-          }
-          JEOF
-          sed -i "s/^package .*;/package $PKG;/" "$D/NativeCam.java" "$D/MainActivity.java"
-          MF=android/app/src/main/AndroidManifest.xml
-          grep -q READ_MEDIA_IMAGES "$MF" || sed -i 's#<application#<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />\n    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n    <application#' "$MF"
-      - name: Remove splash screen
-        run: |
-          python3 - <<'PY'
-          import re
-          p='android/app/src/main/res/values/styles.xml'
-          s=open(p).read()
-          new='''<style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-              <item name="windowSplashScreenBackground">#1b1c22</item>
-              <item name="windowSplashScreenAnimatedIcon">@android:color/transparent</item>
-              <item name="android:background">#1b1c22</item>
-          </style>'''
-          s=re.sub(r'<style name="AppTheme.NoActionBarLaunch".*?</style>',new,s,flags=re.S)
-          open(p,'w').write(s)
-          PY
-      - name: Use fixed signing key
-        run: |
-          mkdir -p ~/.android
-          echo "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" | base64 -d > ~/.android/debug.keystore
-          echo "Using fixed key"
-      - name: New version number every build
-        run: sed -i -E "s/versionCode [0-9]+/versionCode $(( $(date +%s) / 60 ))/" android/app/build.gradle
-      - run: npx cap sync android
-      - name: Build APK
-        id: b1
-        continue-on-error: true
-        run: cd android && chmod +x gradlew && ./gradlew assembleDebug
-      - name: Rebuild without native camera (runs only if the build above failed)
-        if: steps.b1.outcome == 'failure'
-        run: |
-          echo "::warning::Native camera code failed to compile. Building without it."
-          D=$(dirname "$(find android/app/src/main/java -name NativeCam.java | head -1)")
-          rm -f "$D/NativeCam.java"
-          cp /tmp/MainActivity.orig "$D/MainActivity.java"
-          cd android && ./gradlew assembleDebug
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Sudoku-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+            }
+
+            // After the web view exists: make sure the saved update folder is the one being shown.
+            private void otaApply() {
+              try {
+                String name = getSharedPreferences(OTA_PREFS, MODE_PRIVATE).getString("name", null);
+                if (name == null) return;
+                File dir = new File(otaRoot(), name);
+                if (!new File(dir, "index.html").isFile()) { otaClear(); return; }
+                String now = null;
+                try { now = (String) getBridge().getClass().getMethod("getServerBase
