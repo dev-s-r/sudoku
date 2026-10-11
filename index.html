@@ -684,4 +684,58 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden&&AL()&&V(cu
 const lg=$('#logo');let tm;lg.addEventListener('pointerdown',()=>{tm=setTimeout(()=>{tm=0;navigator.vibrate&&navigator.vibrate(30);prompt()},HT())});['pointerup','pointerleave','pointercancel'].forEach(n=>lg.addEventListener(n,()=>{clearTimeout(tm)}));lg.addEventListener('contextmenu',e=>e.preventDefault());
 })();
 requestAnimationFrame(()=>requestAnimationFrame(()=>document.documentElement.classList.remove('noanim')));
+</script><script>
+/* In-app updates: quick web update (no install) or full app update. Works in the installed Android app only. */
+(function(){
+'use strict';
+var REPO='dev-s-r/sudoku',NB=window.AndroidBridge||null,isApp=!!NB&&!!NB.apkInfo,OFF=30000000;
+function q(s){return document.querySelector(s)}
+function ls(k,d){try{var v=localStorage.getItem(k);return v==null?d:v}catch(e){return d}}
+function lw(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+function el(t,c,x){var n=document.createElement(t);if(c)n.className=c;if(x!=null)n.textContent=x;return n}
+async function localInfo(){var apk={},bi={};try{apk=JSON.parse(NB.apkInfo())}catch(e){}try{bi=await(await fetch('build-info.json',{cache:'no-store'})).json()}catch(e){}var vc=apk.versionCode||0,ab=vc>=OFF?vc-OFF:vc;return{apk:ab,name:apk.versionName||'',can:apk.canInstall!==false,build:bi.build||ab}}
+async function latest(){var r=await fetch('https://api.github.com/repos/'+REPO+'/releases/latest',{headers:{Accept:'application/vnd.github+json'}});
+if(!r.ok)throw new Error(r.status==404?'No update found. The GitHub repo must be public and have a published build.':r.status==403?'GitHub is busy. Try again in a few minutes.':'Could not reach GitHub ('+r.status+').');
+var rel=await r.json(),m={};try{m=JSON.parse(rel.body)}catch(e){}
+(rel.assets||[]).forEach(function(a){if(a.name==='Sudoku.apk')m.apkUrl=a.browser_download_url;if(a.name==='web-bundle.zip')m.webUrl=a.browser_download_url});
+if(!m.build){var x=/(\d+)/.exec(rel.tag_name||'');m.build=x?+x[1]:0}return m}
+var dlg=null;
+function close(){if(dlg){dlg.scrim.remove();dlg=null}}
+function open(title){close();var scrim=el('div');scrim.style.cssText='position:fixed;left:0;top:0;right:0;bottom:0;z-index:70;background:#000a;display:flex;align-items:center;justify-content:center;padding:24px';
+var box=el('div','card wcard cf'),h=el('p',null,title),msg=el('p'),bar=el('div'),act=el('div','row2');
+h.style.cssText='font-size:20px;margin:0 0 10px';msg.style.cssText='margin:0 0 14px;font-size:15px;opacity:.85;white-space:pre-line';
+bar.style.cssText='height:6px;border-radius:3px;background:var(--ln);overflow:hidden;margin:0 0 14px;display:none';var fill=el('div');fill.style.cssText='height:100%;width:0;background:var(--fg);transition:width .2s';bar.appendChild(fill);
+box.appendChild(h);box.appendChild(msg);box.appendChild(bar);box.appendChild(act);scrim.appendChild(box);document.body.appendChild(scrim);
+scrim.addEventListener('click',function(ev){if(ev.target===scrim)close()});
+dlg={scrim:scrim,title:function(t){h.textContent=t},say:function(t){msg.textContent=t},progress:function(p){bar.style.display=p==null?'none':'block';if(p!=null)fill.style.width=Math.max(0,Math.min(100,p))+'%'},
+actions:function(list){act.innerHTML='';list.forEach(function(a){var b=el('button','pill',a[0]);b.onclick=a[1];act.appendChild(b)})}};return dlg}
+var lastTry=null;
+function webUpdate(m,info){lastTry={m:m,info:info};var d=open('Updating');d.say('Downloading the update…');d.progress(0);d.actions([]);NB.otaInstall(m.webUrl,String(m.build))}
+function apkUpdate(m,info){lastTry={m:m,info:info,kind:'apk'};var d=open('Update the app');
+if(!info.can){d.say('Android needs your permission to let this app install its own updates. Tap Allow, switch it on, then come back.');d.actions([['Not now',close],['Allow',function(){NB.openInstallPermission()}]]);
+var back=function(){if(document.hidden)return;document.removeEventListener('visibilitychange',back);localInfo().then(function(n){if(dlg){if(n.can)apkUpdate(m,n);else d.say('The permission is still off. Tap Allow to try again.')}})};document.addEventListener('visibilitychange',back);return}
+d.say('Downloading the new version…');d.progress(0);d.actions([]);NB.installApk(m.apkUrl)}
+window.__updProgress=function(p){if(dlg)dlg.progress(p)};
+window.__updResult=function(status,message){if(!dlg)open('Update');dlg.progress(null);
+if(status==='confirm'){dlg.say('Confirm the update in the Android window. Your files stay.');dlg.actions([['Close',close]])}
+else if(status==='success'){dlg.say('Updated. Open the app again.');dlg.actions([['Close',close]])}
+else{dlg.say(message||'The update could not be installed.');var acts=[['Close',close]];if(lastTry&&lastTry.kind!=='apk'){var t=lastTry;acts.push(['Try again',function(){webUpdate(t.m,t.info)}]);if(t.m.apkUrl)acts.push(['Full update',function(){apkUpdate(t.m,t.info)}])}dlg.actions(acts)}};
+async function check(manual){var info=await localInfo(),m,d=manual?open('Check for updates'):null;if(d){d.say('Checking…');d.actions([])}
+try{m=await latest()}catch(e){if(d){d.say(e&&e.message?e.message:'Could not check. Are you online?');d.actions([['Close',close]])}return}
+lw('updLast',Date.now());
+if(!(m.build>info.build)){if(d){d.say('You have the latest version (build '+info.build+').');d.actions([['Close',close]])}return}
+if(!manual&&ls('updSkip','0')==String(m.build))return;
+var quick=!!(isApp&&NB.otaInstall&&m.webUrl&&info.apk>=(m.minApk||0)),note=m.notes?'\n\n'+m.notes:'',dd=d||open('Update available');dd.title('Update available');
+var later=function(){lw('updSkip',String(m.build));close()};
+if(quick){dd.say('Build '+m.build+' is ready. This quick update keeps all your files and needs no installing.'+note);dd.actions([['Later',later],['Update now',function(){webUpdate(m,info)}]])}
+else if(m.apkUrl&&isApp){dd.say('Build '+m.build+' is ready. It changes the app itself, so Android will ask you to confirm. Your files stay.'+note);dd.actions([['Later',later],['Update',function(){apkUpdate(m,info)}]])}
+else{dd.say('A newer version exists, but it cannot be installed from here.');dd.actions([['Close',close]])}}
+if(isApp){
+var list=q('#setL');if(list){var b=document.createElement('button');b.className='mr';b.id='updRow';
+b.innerHTML='<span class="mi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9M20 4v5h-5"/></svg></span><span class="mt">Check for updates</span><svg class="mc" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
+b.onclick=function(){check(true)};list.appendChild(b)}
+localInfo().then(function(i){var c=q('#credit');if(c&&i.build)c.insertAdjacentHTML('beforeend','<br><small style="opacity:.55">Build '+i.build+'</small>')});
+setTimeout(function(){if(NB.otaReady&&document.querySelector('.scr.on'))NB.otaReady()},3000);
+setTimeout(function(){if(Date.now()-(+ls('updLast','0'))<6*3600*1000)return;if(document.querySelector('#ov.on'))return;check(false)},5000)}
+})();
 </script></body></html>
